@@ -1,3 +1,3 @@
 #!/bin/bash
 #module swap PrgEnv-intel PrgEnv-gnu # for using gnu and gcc
-module load bupc
+module load bupc/2.24.2
