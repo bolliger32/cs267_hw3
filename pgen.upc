@@ -5,6 +5,7 @@
 #include <math.h>
 #include <time.h>
 #include <upc.h>
+#include <upc_collective.h>
 
 #include "packingDNAseq.h"
 #include "kmer_hash.h"
@@ -15,18 +16,17 @@
      _a > _b ? _a : _b; })
 
 
-shared int nKmers,total_chars_to_read;
+shared int nKmers,total_chars_to_read,*totalStart;
 int64_t cur_chars_read;
 shared_memory_heap_t memory_heap;
 shared unsigned char *working_buffer;
-shared int64_t cur_start_pos = 0;
+shared int64_t cur_start_pos[THREADS],start_pos[THREADS];
 int main(int argc, char *argv[]){
-    upc_lock_t *kmer_lock = upc_all_lock_alloc();
+    
 	/** Declarations **/
 	double inputTime=0.0, constrTime=0.0, traversalTime=0.0;
 
 	/** Read input **/
-	upc_barrier;
 	inputTime -= gettime();
 	///////////////////////////////////////////
 	// Your code for input file reading here //
@@ -65,7 +65,10 @@ int main(int argc, char *argv[]){
     shared kmer_t* memory_heap = (shared kmer_t*) upc_all_alloc(THREADS, sizeof(kmer_t)*mh_block_size);
     
     // Create start kmers list
-    shared int64_t* startKmersList = (shared int64_t*) upc_all_alloc(nKmers, sizeof(int64_t));
+    shared [] int64_t* startKmersList = (shared [] int64_t*) upc_all_alloc(1, nKmers*sizeof(int64_t));
+    int64_t* startKmersList_local = (int64_t*) malloc(nKmers/THREADS*sizeof(int64_t));
+
+    int64_t cur_start_pos_local=0;
 
     
    /* Read the kmers from the input file and store them in the  memory_heap */
@@ -80,8 +83,7 @@ int main(int argc, char *argv[]){
     
     unsigned char wb[LINE_SIZE];
     char packedKmer[KMER_PACKED_LENGTH];
-    for (int i = 0; i < lines_to_read; i++) {
-        int mh_ix = start_ix + i;
+    for (int mh_ix = start_ix; mh_ix < stop_ix; mh_ix++) {
         fread(wb, sizeof(unsigned char), LINE_SIZE, inputFile);
         char left_ext = (char) wb[KMER_LENGTH+1];
         char right_ext = (char) wb[KMER_LENGTH+2];
@@ -103,18 +105,19 @@ int main(int argc, char *argv[]){
         
         // Add to start list
         if (left_ext == 'F') {
-            upc_lock(kmer_lock);
-            startKmersList[cur_start_pos]=mh_ix;
-            cur_start_pos++;
-            upc_unlock(kmer_lock);
+            startKmersList_local[cur_start_pos_local]=mh_ix;
+            cur_start_pos_local++;
             
         }
     }
     fclose(inputFile);
-	///////////////////////////////////////////
-	upc_barrier;
+    cur_start_pos[MYTHREAD] = cur_start_pos_local;
+
+    upc_all_prefix_reduceI(start_pos,cur_start_pos, UPC_ADD, THREADS, 1, NULL, UPC_IN_NOSYNC | UPC_OUT_ALLSYNC);
+    upc_all_reduceI(totalStart,cur_start_pos,UPC_ADD,THREADS,1, NULL, UPC_IN_NOSYNC | UPC_OUT_NOSYNC);
+
+    upc_memput(&startKmersList[start_pos[MYTHREAD]-cur_start_pos[MYTHREAD]],startKmersList_local,cur_start_pos_local*sizeof(int64_t));
 	constrTime += gettime();
-    
     
 	/** Graph traversal **/
 	traversalTime -= gettime();
@@ -132,7 +135,7 @@ int main(int argc, char *argv[]){
     char pKmer[KMER_PACKED_LENGTH];
     int64_t contigID = 0, totBases = 0;
 
-    upc_forall(int i = 0; i < cur_start_pos; i++; i) {
+    upc_forall(int i = 0; i < *totalStart; i++; i) {
         uint64_t cur_start_ix = startKmersList[i];
         unpackSequenceShared((shared unsigned char*) memory_heap[cur_start_ix].kmer,  (unsigned char*) unpackedKmer, KMER_LENGTH);
 
@@ -163,7 +166,6 @@ int main(int argc, char *argv[]){
     }
    fclose(outputFile);
 	////////////////////////////////////////////////////////////
-	upc_barrier;
 	traversalTime += gettime();
 
 	/** Print timing and output info **/
