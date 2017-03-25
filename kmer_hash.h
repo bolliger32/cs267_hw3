@@ -9,26 +9,50 @@
 #include "contig_generation.h"
 
 /* Creates a hash table and (pre)allocates memory for the memory heap */
-hash_table_t* create_hash_table(int64_t nEntries, memory_heap_t *memory_heap)
+//hash_table_t* create_hash_table(int64_t nEntries, memory_heap_t *memory_heap)
+//{
+//   hash_table_t *result;
+//   int64_t n_buckets = nEntries * LOAD_FACTOR;
+//
+//   result = (hash_table_t*) malloc(sizeof(hash_table_t));
+//   result->size = n_buckets;
+//   result->table = (bucket_t*) calloc(n_buckets , sizeof(bucket_t));
+//   
+//   if (result->table == NULL) {
+//      fprintf(stderr, "ERROR: Could not allocate memory for the hash table: %lld buckets of %lu bytes\n", n_buckets, sizeof(bucket_t));
+//      exit(1);
+//   }
+//   
+//   memory_heap->heap = (kmer_t *) malloc(nEntries * sizeof(kmer_t));
+//   if (memory_heap->heap == NULL) {
+//      fprintf(stderr, "ERROR: Could not allocate memory for the heap!\n");
+//      exit(1);
+//   }
+//   memory_heap->posInHeap = 0;
+//   
+//   return result;
+//}
+
+shared_hash_table_t* create_shared_hash_table(int64_t nEntries, shared_memory_heap_t *memory_heap, int nKmers)
 {
-   hash_table_t *result;
+   shared_hash_table_t *result;
    int64_t n_buckets = nEntries * LOAD_FACTOR;
 
-   result = (hash_table_t*) malloc(sizeof(hash_table_t));
+   result = (shared_hash_table_t*) malloc(sizeof(shared_hash_table_t));
    result->size = n_buckets;
-   result->table = (bucket_t*) calloc(n_buckets , sizeof(bucket_t));
+   result->table = (shared shared_bucket_t*) upc_all_alloc(n_buckets , sizeof(shared_bucket_t));
    
    if (result->table == NULL) {
-      fprintf(stderr, "ERROR: Could not allocate memory for the hash table: %lld buckets of %lu bytes\n", n_buckets, sizeof(bucket_t));
+      fprintf(stderr, "ERROR: Could not allocate memory for the hash table: %lld buckets of %llu bytes\n", n_buckets, sizeof(shared_bucket_t));
       exit(1);
    }
    
-   memory_heap->heap = (kmer_t *) malloc(nEntries * sizeof(kmer_t));
+   memory_heap->heap = (shared kmer_t *) upc_all_alloc(THREADS, sizeof(shared kmer_t)*ceil(nKmers/THREADS));
    if (memory_heap->heap == NULL) {
       fprintf(stderr, "ERROR: Could not allocate memory for the heap!\n");
       exit(1);
    }
-   memory_heap->posInHeap = 0;
+   memory_heap->posInHeap = MYTHREAD * ceil(nKmers/THREADS);
    
    return result;
 }
@@ -70,6 +94,29 @@ kmer_t* lookup_kmer(hash_table_t *hashtable, const unsigned char *kmer)
       result = result->next;
    }
    return NULL;
+}
+int64_t lookup_kmer_shared(shared uint64_t *hashtable, const unsigned char *kmer, int64_t size, shared kmer_t* memory_heap, shared uint64_t* collisions)
+{
+   char packedKmer[KMER_PACKED_LENGTH];
+   packSequence(kmer, (unsigned char*) packedKmer, KMER_LENGTH);
+   int64_t hashval = hashkmer(size, (char*) packedKmer);
+   uint64_t result;
+   
+   result = (int) hashtable[hashval];
+   char comp_kmer[KMER_PACKED_LENGTH];
+    upc_memget(comp_kmer, memory_heap[result].kmer,KMER_PACKED_LENGTH);
+
+   if ( memcmp(packedKmer, comp_kmer, KMER_PACKED_LENGTH * sizeof(char)) == 0 ) {
+       return result;
+   }
+   else {
+        while ( memcmp(packedKmer, comp_kmer, KMER_PACKED_LENGTH * sizeof(char)) != 0 ) {
+            result = (int) collisions[result];
+            upc_memget(comp_kmer, memory_heap[result].kmer,KMER_PACKED_LENGTH);
+            
+        }
+       return result;
+    }
 }
 
 /* Adds a kmer and its extensions in the hash table (note that a memory heap should be preallocated. ) */

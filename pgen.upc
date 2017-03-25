@@ -9,9 +9,19 @@
 #include "packingDNAseq.h"
 #include "kmer_hash.h"
 
+#define max(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+       __typeof__ (b) _b = (b); \
+     _a > _b ? _a : _b; })
 
+
+shared int nKmers,total_chars_to_read;
+int64_t cur_chars_read;
+shared_memory_heap_t memory_heap;
+shared unsigned char *working_buffer;
+shared int64_t cur_start_pos = 0;
 int main(int argc, char *argv[]){
-
+    upc_lock_t *kmer_lock = upc_all_lock_alloc();
 	/** Declarations **/
 	double inputTime=0.0, constrTime=0.0, traversalTime=0.0;
 
@@ -20,23 +30,138 @@ int main(int argc, char *argv[]){
 	inputTime -= gettime();
 	///////////////////////////////////////////
 	// Your code for input file reading here //
+    /* Read the input file name */
+    char *input_UFX_name = argv[1];
+    if (MYTHREAD == 0) {
+        nKmers = getNumKmersInUFX(input_UFX_name);
+    }
+     init_LookupTable();
 	///////////////////////////////////////////
 	upc_barrier;
 	inputTime += gettime();
-
+    
+    
+    
 	/** Graph construction **/
 	constrTime -= gettime();
 	///////////////////////////////////////////
-	// Your code for graph construction here //
+    /* Create a hash table */
+    
+//    shared_hash_table_t* hashtable = create_shared_hash_table(nKmers,&memory_heap, nKmers);
+    int64_t n_buckets = (nKmers+LOAD_FACTOR-1)*LOAD_FACTOR;
+    shared uint64_t* hashtable = (shared uint64_t*) upc_all_alloc(n_buckets, sizeof(uint64_t));
+    upc_forall(int i = 0; i<n_buckets; i++; hashtable[i]) {
+        hashtable[i]=-1;
+    }
+    
+    /* Create collisions table for indices when there is a collision */
+    shared uint64_t* collisions = (shared uint64_t*) upc_all_alloc(nKmers,sizeof(uint64_t));
+    upc_forall(int i = 0; i<nKmers; i++; i) {
+        collisions[i]= (uint64_t) -1;
+    }
+    
+    /* Create memory heap */
+    int mh_block_size = (nKmers+(THREADS-1))/THREADS;
+    shared kmer_t* memory_heap = (shared kmer_t*) upc_all_alloc(THREADS, sizeof(kmer_t)*mh_block_size);
+    
+    // Create start kmers list
+    shared int64_t* startKmersList = (shared int64_t*) upc_all_alloc(nKmers, sizeof(int64_t));
+
+    
+   /* Read the kmers from the input file and store them in the  memory_heap */
+    total_chars_to_read = nKmers * LINE_SIZE;
+
+    int start_ix = mh_block_size*MYTHREAD;
+    int stop_ix = mh_block_size*(MYTHREAD+1);
+    if (MYTHREAD==(THREADS-1)) stop_ix = nKmers;
+    int lines_to_read = stop_ix - start_ix;
+    FILE *inputFile = fopen(input_UFX_name,"r");
+    fseek(inputFile, sizeof(unsigned char)*start_ix*LINE_SIZE,SEEK_SET);
+    
+    unsigned char wb[LINE_SIZE];
+    char packedKmer[KMER_PACKED_LENGTH];
+    for (int i = 0; i < lines_to_read; i++) {
+        int mh_ix = start_ix + i;
+        fread(wb, sizeof(unsigned char), LINE_SIZE, inputFile);
+        char left_ext = (char) wb[KMER_LENGTH+1];
+        char right_ext = (char) wb[KMER_LENGTH+2];
+        /* Pack a k-mer sequence appropriately */
+        packSequence(wb, (unsigned char*) packedKmer, KMER_LENGTH);
+        int64_t hashval = hashkmer(n_buckets, (char*) packedKmer);
+
+        /* place into heap */
+        upc_memput(memory_heap[mh_ix].kmer, packedKmer,KMER_PACKED_LENGTH*sizeof(char));
+        
+        memory_heap[mh_ix].r_ext = right_ext;
+        memory_heap[mh_ix].l_ext = left_ext;
+        
+        /* place into hashtable or collisions table */
+        int res = bupc_atomicI_cswap_strict(hashtable+hashval,-1,mh_ix);
+        while (res != -1) {
+            res = bupc_atomicI_cswap_strict(collisions + res,-1,mh_ix);
+        }
+        
+        // Add to start list
+        if (left_ext == 'F') {
+            upc_lock(kmer_lock);
+            startKmersList[cur_start_pos]=mh_ix;
+            cur_start_pos++;
+            upc_unlock(kmer_lock);
+            
+        }
+    }
+    fclose(inputFile);
 	///////////////////////////////////////////
 	upc_barrier;
 	constrTime += gettime();
-
+    
+    
 	/** Graph traversal **/
 	traversalTime -= gettime();
 	////////////////////////////////////////////////////////////
-	// Your code for graph traversal and output printing here //
-	// Save your output to "pgen.out"                         //
+    char buff[10];
+    int r = sprintf(buff,"%d",MYTHREAD);
+    char* buf = (char*) malloc((r + 9) * sizeof(char));
+   sprintf(buf, "pgen_%d.out", MYTHREAD); // puts string into buffer
+   FILE* outputFile = fopen(buf, "w");
+
+   /* Pick start nodes from the startKmersList */
+    
+    char unpackedKmer[KMER_LENGTH+1];
+    unpackedKmer[KMER_LENGTH] = '\0';
+    char pKmer[KMER_PACKED_LENGTH];
+    int64_t contigID = 0, totBases = 0;
+
+    upc_forall(int i = 0; i < cur_start_pos; i++; i) {
+        uint64_t cur_start_ix = startKmersList[i]; upc_memget(pKmer,memory_heap[cur_start_ix].kmer,KMER_PACKED_LENGTH);
+        unpackSequence((unsigned char*) pKmer,  (unsigned char*) unpackedKmer, KMER_LENGTH);
+
+      /* Initialize current contig with the seed content */
+      char cur_contig[MAXIMUM_CONTIG_SIZE];
+      memcpy(cur_contig ,unpackedKmer, KMER_LENGTH * sizeof(char));
+      int posInContig = KMER_LENGTH;
+      char right_ext = memory_heap[cur_start_ix].r_ext;
+
+      /* Keep adding bases while not finding a terminal node */
+      while (right_ext != 'F') {
+         cur_contig[posInContig] = right_ext;
+         posInContig++;
+
+         /* At position cur_contig[posInContig-KMER_LENGTH] starts the last k-mer in the current contig */
+          int64_t cur_kmer_ptr = lookup_kmer_shared(hashtable, (const unsigned char *) &cur_contig[posInContig-KMER_LENGTH], n_buckets,memory_heap, collisions);
+         right_ext = memory_heap[cur_kmer_ptr].r_ext;
+      }
+    
+    
+    
+    
+      /* Print the contig since we have found the corresponding terminal node */
+      cur_contig[posInContig] = '\0';
+      fprintf(outputFile,"%s\n", cur_contig);
+      contigID++;
+      totBases += strlen(cur_contig);
+    }
+   fclose(outputFile);
 	////////////////////////////////////////////////////////////
 	upc_barrier;
 	traversalTime += gettime();

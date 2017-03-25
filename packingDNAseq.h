@@ -98,10 +98,44 @@ void unpackSequence(const unsigned char *seq_to_unpack, unsigned char *unpacked_
 	}	
 	*(unpacked_seq + kmer_len) = '\0';
 }
-
+void unpackSequenceShared(shared [] const unsigned char * seq_to_unpack, unsigned char *unpacked_seq, int kmer_len)
+{
+	/* Result string is pointer unpacked_seq */
+	int i = 0, j = 0;
+   int packed_len = (kmer_len+3)/4;
+	for( ; i < packed_len ; i++, j += 4 )
+	{
+		*( ( unsigned int * )( unpacked_seq + j ) ) = packedCodeToFourMer[ seq_to_unpack[i] ];
+	}	
+	*(unpacked_seq + kmer_len) = '\0';
+}
 int comparePackedSeq(const unsigned char *seq1, const unsigned char *seq2, int seq_len)
 {
 	return memcmp(seq1, seq2, seq_len);
+}
+
+int unique_elements(shared int64_t* arr, int len) {
+    int* counted = (int*) malloc(len*sizeof(int));
+    int j, n, count, flag;
+
+    counted[0] = arr[0]; 
+
+    count = 1;/*one element is counted*/
+
+        for(j=0; j <= len-1; ++j) {
+        flag = 1;;
+        /*the counted array will always have 'count' elements*/
+        for(n=0; n < count; ++n) {
+            if(arr[j] == counted[n]) {
+                flag = 0;
+            }
+        }
+        if(flag == 1) {
+            ++count;
+            counted[count-1] = arr[j];
+        }
+    }
+    return count;
 }
 
 #endif // PACKING_DNA_SEQ_H
