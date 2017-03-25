@@ -4,8 +4,8 @@
 #include <sys/time.h>
 #include <math.h>
 #include <time.h>
-#include "packingDNAseq.h"
-#include "kmer_hash.h"
+#include "packingDNAseq_serial.h"
+#include "kmer_hash_serial.h"
 
 int main(int argc, char **argv) {
 
