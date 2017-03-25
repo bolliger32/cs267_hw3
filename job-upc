@@ -9,17 +9,18 @@
 
 # Parameters
 P=3				# Number of UPC processes to run
-INPUT=test		# Path to your input file
+INPUT=/scratch2/scratchdirs/bolliger/striped/test		# Path to your input file
 
 cd ${PWD}
-
+#export GASNET_BACKTRACE=1
 # Run program
 srun -n 1 ./serial ${INPUT}
-upcrun -n $P -shared-heap=1G ./pgen ${INPUT}
+GASNET_BACKTRACE=1 upcrun -n ${P} -shared-heap=1G ./pgen ${INPUT}
 
 
 # Sort contigs in both output files to compare
 sort serial.out > serial.sorted
+cat pgen*.out > pgen.out
 sort pgen.out > pgen.sorted
 
 # diff -q <file1> <file2> will print nothing if both files are equal
