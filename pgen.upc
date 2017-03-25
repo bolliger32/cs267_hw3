@@ -108,9 +108,10 @@ int main(int argc, char *argv[]){
     }
     fclose(inputFile);
     cur_start_pos[MYTHREAD] = cur_start_pos_local;
-
+    bupc_atomicI_fetchadd_relaxed(totalStart,cur_start_pos_local);
     upc_all_prefix_reduceI(start_pos,cur_start_pos, UPC_ADD, THREADS, 1, NULL, UPC_IN_NOSYNC | UPC_OUT_ALLSYNC);
-    upc_all_reduceI(totalStart,cur_start_pos,UPC_ADD,THREADS,1, NULL, UPC_IN_NOSYNC | UPC_OUT_ALLSYNC);
+//    upc_all_reduceI(totalStart,cur_start_pos,UPC_ADD,THREADS,1, NULL, UPC_IN_NOSYNC | UPC_OUT_ALLSYNC);
+    upc_barrier;
     shared [] int64_t* startKmersList = (shared [] int64_t*) upc_all_alloc(1, *totalStart*sizeof(int64_t));
 
     upc_memput(&startKmersList[start_pos[MYTHREAD]-cur_start_pos[MYTHREAD]],startKmersList_local,cur_start_pos_local*sizeof(int64_t));
