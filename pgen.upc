@@ -94,9 +94,9 @@ int main(int argc, char *argv[]){
         memory_heap[mh_ix].l_ext = left_ext;
         
         /* place into hashtable or collisions table */
-        int res = bupc_atomicI_cswap_strict(hashtable+hashval,-1,mh_ix);
+        int res = bupc_atomicI_cswap_relaxed(hashtable+hashval,-1,mh_ix);
         while (res != -1) {
-            res = bupc_atomicI_cswap_strict(collisions + res,-1,mh_ix);
+            res = bupc_atomicI_cswap_relaxed(collisions + res,-1,mh_ix);
         }
         
         // Add to start list
@@ -110,7 +110,6 @@ int main(int argc, char *argv[]){
     cur_start_pos[MYTHREAD] = cur_start_pos_local;
     bupc_atomicI_fetchadd_relaxed(totalStart,cur_start_pos_local);
     upc_all_prefix_reduceI(start_pos,cur_start_pos, UPC_ADD, THREADS, 1, NULL, UPC_IN_NOSYNC | UPC_OUT_ALLSYNC);
-//    upc_all_reduceI(totalStart,cur_start_pos,UPC_ADD,THREADS,1, NULL, UPC_IN_NOSYNC | UPC_OUT_ALLSYNC);
     upc_barrier;
     shared [] int64_t* startKmersList = (shared [] int64_t*) upc_all_alloc(1, *totalStart*sizeof(int64_t));
 
@@ -170,7 +169,7 @@ int main(int argc, char *argv[]){
 	traversalTime += gettime();
     upc_barrier;
     upc_free(hashtable);
-//    upc_free(startKmersList); // crashes for some reason
+//    upc_free(startKmersList); // crashes sometimes for some reason
     upc_free(collisions);
     upc_free(memory_heap);
 	/** Print timing and output info **/
