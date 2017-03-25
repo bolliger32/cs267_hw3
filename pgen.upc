@@ -65,7 +65,6 @@ int main(int argc, char *argv[]){
     shared kmer_t* memory_heap = (shared kmer_t*) upc_all_alloc(THREADS, sizeof(kmer_t)*mh_block_size);
     
     // Create start kmers list
-    shared [] int64_t* startKmersList = (shared [] int64_t*) upc_all_alloc(1, nKmers*sizeof(int64_t));
     int64_t* startKmersList_local = (int64_t*) malloc(nKmers/THREADS*sizeof(int64_t));
 
     int64_t cur_start_pos_local=0;
@@ -114,9 +113,11 @@ int main(int argc, char *argv[]){
     cur_start_pos[MYTHREAD] = cur_start_pos_local;
 
     upc_all_prefix_reduceI(start_pos,cur_start_pos, UPC_ADD, THREADS, 1, NULL, UPC_IN_NOSYNC | UPC_OUT_ALLSYNC);
-    upc_all_reduceI(totalStart,cur_start_pos,UPC_ADD,THREADS,1, NULL, UPC_IN_NOSYNC | UPC_OUT_NOSYNC);
+    upc_all_reduceI(totalStart,cur_start_pos,UPC_ADD,THREADS,1, NULL, UPC_IN_NOSYNC | UPC_OUT_ALLSYNC);
+    shared [] int64_t* startKmersList = (shared [] int64_t*) upc_all_alloc(1, *totalStart*sizeof(int64_t));
 
     upc_memput(&startKmersList[start_pos[MYTHREAD]-cur_start_pos[MYTHREAD]],startKmersList_local,cur_start_pos_local*sizeof(int64_t));
+    free(startKmersList_local);
 	constrTime += gettime();
     
 	/** Graph traversal **/
@@ -165,9 +166,15 @@ int main(int argc, char *argv[]){
       totBases += strlen(cur_contig);
     }
    fclose(outputFile);
+    free(buf);
+
 	////////////////////////////////////////////////////////////
 	traversalTime += gettime();
-
+    upc_barrier;
+    upc_free(hashtable);
+//    upc_free(startKmersList); // crashes for some reason
+    upc_free(collisions);
+    upc_free(memory_heap);
 	/** Print timing and output info **/
 	/***** DO NOT CHANGE THIS PART ****/
 	if(MYTHREAD==0){
