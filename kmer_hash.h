@@ -8,30 +8,6 @@
 #include <string.h>
 #include "contig_generation.h"
 
-shared_hash_table_t* create_shared_hash_table(int64_t nEntries, shared_memory_heap_t *memory_heap, int nKmers)
-{
-   shared_hash_table_t *result;
-   int64_t n_buckets = nEntries * LOAD_FACTOR;
-
-   result = (shared_hash_table_t*) malloc(sizeof(shared_hash_table_t));
-   result->size = n_buckets;
-   result->table = (shared shared_bucket_t*) upc_all_alloc(n_buckets , sizeof(shared_bucket_t));
-   
-   if (result->table == NULL) {
-      fprintf(stderr, "ERROR: Could not allocate memory for the hash table: %lld buckets of %llu bytes\n", n_buckets, sizeof(shared_bucket_t));
-      exit(1);
-   }
-   
-   memory_heap->heap = (shared kmer_t *) upc_all_alloc(THREADS, sizeof(shared kmer_t)*ceil(nKmers/THREADS));
-   if (memory_heap->heap == NULL) {
-      fprintf(stderr, "ERROR: Could not allocate memory for the heap!\n");
-      exit(1);
-   }
-   memory_heap->posInHeap = MYTHREAD * ceil(nKmers/THREADS);
-   
-   return result;
-}
-
 /* Auxiliary function for computing hash values */
 int64_t hashseq(int64_t  hashtable_size, char *seq, int size)
 {

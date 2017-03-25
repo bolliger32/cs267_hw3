@@ -17,9 +17,6 @@
 
 
 shared int nKmers,total_chars_to_read,*totalStart;
-int64_t cur_chars_read;
-shared_memory_heap_t memory_heap;
-shared unsigned char *working_buffer;
 shared int64_t cur_start_pos[THREADS],start_pos[THREADS];
 int main(int argc, char *argv[]){
     

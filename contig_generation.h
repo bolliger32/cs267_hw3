@@ -41,42 +41,6 @@ struct kmer_t{
    char r_ext;
 };
 
-/* Bucket data structure */
-typedef struct bucket_t bucket_t;
-struct bucket_t{
-   kmer_t *head;          // Pointer to the first entry of that bucket
-};
-typedef struct shared_bucket_t shared_bucket_t;
-struct shared_bucket_t{
-   shared kmer_t *head;          // Pointer to the first entry of that bucket
-};
-
-/* Hash table data structure */
-typedef struct hash_table_t hash_table_t;
-struct hash_table_t {
-   int64_t size;           // Size of the hash table
-   bucket_t *table;			// Entries of the hash table are pointers to buckets
-};
-
-typedef struct shared_hash_table_t shared_hash_table_t;
-struct shared_hash_table_t {
-   int64_t size;           // Size of the hash table
-   shared shared_bucket_t *table;			// Entries of the hash table are pointers to buckets
-};
-
-/* Memory heap data structure */
-typedef struct memory_heap_t memory_heap_t;
-struct memory_heap_t {
-   kmer_t *heap;
-   int64_t posInHeap;
-};
-typedef struct shared_memory_heap_t shared_memory_heap_t;
-struct shared_memory_heap_t {
-   shared kmer_t *heap;
-   int64_t posInHeap;
-};
-
-
 /* Returns the number of UFX kmers in a file */
 int64_t getNumKmersInUFX(const char *filename) {
    FILE *f = fopen(filename, "r");
