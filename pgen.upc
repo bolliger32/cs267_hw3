@@ -133,8 +133,8 @@ int main(int argc, char *argv[]){
     int64_t contigID = 0, totBases = 0;
 
     upc_forall(int i = 0; i < cur_start_pos; i++; i) {
-        uint64_t cur_start_ix = startKmersList[i]; upc_memget(pKmer,memory_heap[cur_start_ix].kmer,KMER_PACKED_LENGTH);
-        unpackSequence((unsigned char*) pKmer,  (unsigned char*) unpackedKmer, KMER_LENGTH);
+        uint64_t cur_start_ix = startKmersList[i];
+        unpackSequenceShared((shared unsigned char*) memory_heap[cur_start_ix].kmer,  (unsigned char*) unpackedKmer, KMER_LENGTH);
 
       /* Initialize current contig with the seed content */
       char cur_contig[MAXIMUM_CONTIG_SIZE];
