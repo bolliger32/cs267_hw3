@@ -169,10 +169,10 @@ int main(int argc, char *argv[]){
 	////////////////////////////////////////////////////////////
 	traversalTime += gettime();
     upc_barrier;
-    upc_free(hashtable);
-//    upc_free(startKmersList); // crashes for some reason
-    upc_free(collisions);
-    upc_free(memory_heap);
+    upc_all_free(startKmersList);
+    upc_all_free(memory_heap);
+    upc_all_free(collisions);
+    upc_all_free(hashtable);
 	/** Print timing and output info **/
 	/***** DO NOT CHANGE THIS PART ****/
 	if(MYTHREAD==0){
